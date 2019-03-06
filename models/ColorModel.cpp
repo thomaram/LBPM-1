@@ -246,7 +246,7 @@ void ScaLBL_ColorModel::Create(){
 	Mask->CommInit();
 	Np=Mask->PoreCount();
 	//...........................................................................
-	if (rank==0)    printf ("Create ScaLBL_Communicator \n");
+	if (rank==0)    printf ("Create ScaLBL_Communicator TR3 version\n");
 	// Create a communicator for the device (will use optimized layout)
 	// ScaLBL_Communicator ScaLBL_Comm(Mask); // original
 	ScaLBL_Comm  = std::shared_ptr<ScaLBL_Communicator>(new ScaLBL_Communicator(Mask));
@@ -433,11 +433,11 @@ void ScaLBL_ColorModel::Run(){
 	double morph_delta;
 	int morph_timesteps = 0;
 	int ramp_timesteps = 50000;
+	int interval_timesteps = ramp_timesteps;
+	int interval_max = 100000;
 	double capillary_number;
 	double tolerance = 1.f;
 	double Ca_previous = 0.f;
-
-
 	double delta_volume = 0.0;
 	double delta_volume_target = 0.0;
 	
@@ -482,6 +482,7 @@ void ScaLBL_ColorModel::Run(){
 		tolerance = 0.02;
 	}
 	int analysis_interval = analysis_db->getScalar<int>( "analysis_interval" );
+
 	
 	if (rank==0){
 		printf("********************************************************\n");
@@ -497,7 +498,7 @@ void ScaLBL_ColorModel::Run(){
 	
 	//************ MAIN ITERATION LOOP ***************************************/
 	PROFILE_START("Loop");
-    //std::shared_ptr<Database> analysis_db;
+	//std::shared_ptr<Database> analysis_db;
 	bool Regular = false;
 	runAnalysis analysis( analysis_db, rank_info, ScaLBL_Comm, Dm, Np, Regular, beta, Map );
 	//analysis.createThreads( analysis_method, 4 );
@@ -586,6 +587,11 @@ void ScaLBL_ColorModel::Run(){
 		// allow initial ramp-up to get closer to steady state
 		if (timestep > ramp_timesteps && timestep%analysis_interval == 0 && USE_MORPH){
 			analysis.finish();
+			if (rank==0) {
+			  printf(" Interval timestep = %i\n", interval_timesteps);
+			  printf(" Morph timestep = %i\n", morph_timesteps);
+			}
+			interval_timesteps += analysis_interval;
 			if ( morph_timesteps > morph_interval ){
 
 				double volB = Averages->Volume_w(); 
@@ -608,8 +614,10 @@ void ScaLBL_ColorModel::Run(){
 				//double krA = muA*volA*flow_rate_A/force_magnitude/double(Nx*Ny*Nz*nprocs);
 				//double krB = muB*volB*flow_rate_B/force_magnitude/double(Nx*Ny*Nz*nprocs);
 
-				if (fabs((Ca - Ca_previous)/Ca) < tolerance ){
-					MORPH_ADAPT = true;
+				if (rank == 0) printf(" Tolerance = %f\n", fabs((Ca - Ca_previous)/Ca));
+
+				if (fabs((Ca - Ca_previous)/Ca) < tolerance || interval_timesteps > interval_max){
+				        MORPH_ADAPT = true;
 					CURRENT_MORPH_TIMESTEPS=0;
 					delta_volume_target = (volA + volB)*morph_delta; // set target volume chnage
 					if (rank==0){
@@ -617,10 +625,19 @@ void ScaLBL_ColorModel::Run(){
 						printf("Ca = %f, (previous = %f) \n",Ca,Ca_previous);
 						volA /= double((Nx-2)*(Ny-2)*(Nz-2)*nprocs);
 						volB /= double((Nx-2)*(Ny-2)*(Nz-2)*nprocs);
+						double keffA = muA*volA/(volA+volB)*vA_x/Fx;
+						double keffB = muB*volB/(volA+volB)*vB_x/Fx;
+
 						FILE * kr_log_file = fopen("relperm.csv","a");
 						fprintf(kr_log_file,"%i %.5g %.5g %.5g %.5g %.5g %.5g ",timestep-analysis_interval+20,muA,muB,5.796*alpha,Fx,Fy,Fz);
 						fprintf(kr_log_file,"%.5g %.5g %.5g %.5g %.5g %.5g %.5g %.5g\n",volA,volB,vA_x,vA_y,vA_z,vB_x,vB_y,vB_z);
 						fclose(kr_log_file);
+
+						FILE * kr_log_file_norm = fopen("relperm_norm.csv","a");
+						fprintf(kr_log_file_norm,"%i %.5g %.5g %.5g %.5g %.5g %.5g ",timestep-analysis_interval+20,muA,muB,5.796*alpha,Fx,Fy,Fz);
+						fprintf(kr_log_file_norm,"%.5g %.5g %.5g\n",volB/(volA+volB),keffA,keffB);
+						fclose(kr_log_file_norm);
+
 
 						printf("  Measured capillary number %f \n ",Ca);
 					}
@@ -658,13 +675,18 @@ void ScaLBL_ColorModel::Run(){
 						}
 					}
 					*/
+
+					//Bug??
+					interval_timesteps = 0;
 				}
 				else{
-					if (rank==0){
-						printf("** Continue to simulate steady *** \n ");
-						printf("Ca = %f, (previous = %f) \n",Ca,Ca_previous);
-					}
-					morph_timesteps=0;
+				  if (rank==0){
+				    printf("** Continue to simulate steady *** \n ");
+				    printf("Ca = %f, (previous = %f) \n",Ca,Ca_previous);
+				  }
+				  morph_timesteps=0;
+
+				  
 				}
 				Ca_previous = Ca;
 			}
@@ -703,7 +725,10 @@ void ScaLBL_ColorModel::Run(){
 				MPI_Barrier(comm);
 			}
 			morph_timesteps += analysis_interval;
+			
+			
 		}
+		
 	}
 	analysis.finish();
 	PROFILE_STOP("Loop");
