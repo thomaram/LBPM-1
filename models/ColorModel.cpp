@@ -434,7 +434,7 @@ void ScaLBL_ColorModel::Run(){
 	int morph_timesteps = 0;
 	int ramp_timesteps = 50000;
 	int interval_timesteps = ramp_timesteps;
-	int interval_max = 100000;
+	int interval_max = 200000;
 	double capillary_number;
 	double tolerance = 1.f;
 	double Ca_previous = 0.f;
@@ -625,8 +625,8 @@ void ScaLBL_ColorModel::Run(){
 						printf("Ca = %f, (previous = %f) \n",Ca,Ca_previous);
 						volA /= double((Nx-2)*(Ny-2)*(Nz-2)*nprocs);
 						volB /= double((Nx-2)*(Ny-2)*(Nz-2)*nprocs);
-						double keffA = muA*volA/(volA+volB)*vA_x/Fx;
-						double keffB = muB*volB/(volA+volB)*vB_x/Fx;
+						double keffA = muA*volA/(volA+volB)*flow_rate_A/force_magnitude;
+						double keffB = muB*volB/(volA+volB)*flow_rate_B/force_magnitude;
 
 						FILE * kr_log_file = fopen("relperm.csv","a");
 						fprintf(kr_log_file,"%i %.5g %.5g %.5g %.5g %.5g %.5g ",timestep-analysis_interval+20,muA,muB,5.796*alpha,Fx,Fy,Fz);
